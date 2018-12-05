@@ -1,0 +1,54 @@
+#!/bin/bash
+# yt_podoff - Create offline caches of YouTube podcast feeds
+#
+# USAGE: yt_podoff [<youtube-dl_options>... --] <YouTube_url_file> ...
+#
+# EXAMPLE:
+# $ mkdir -p ${HOME}/podcasts/Hak5
+# $ echo "https://www.youtube.com/playlist?list=PLW5y1tjAOzI0w_GbtiEbYS5PGJ2pmxAIX" > ${HOME}/podcasts/Hak5/.url
+# $ yt_podoff --write-info-json -- ${HOME}/podcasts/Hak5/.url
+
+# Save any youtube-dl options
+YOUTUBE_DL_OPTS=()
+if [[ "$1" == -* ]]; then
+
+  while [[ "$1" != -- ]]; do
+
+    YOUTUBE_DL_OPTS+=("$1")
+    shift
+
+  done
+
+fi
+
+for F in "$@"; do
+
+  if [ -s "$F" ] ; then
+
+    cd "$(dirname "$F")"
+
+    # Read YouTube page URLs...
+    FEED_URLS=(); while read U; do
+
+      # ...and transform them into RSS feed URLs (ref: https://stackoverflow.com/a/31535120)
+      case "$U" in
+        */channel/*) FEED_URLS+=("https://www.youtube.com/feeds/videos.xml?channel_id=${U##*/}");;
+        */user/*) FEED_URLS+=("https://www.youtube.com/feeds/videos.xml?user=${U##*/}");;
+        */playlist?list=*) FEED_URLS+=("https://www.youtube.com/feeds/videos.xml?playlist_id=${U##*=}");;
+      esac
+
+    done <"$(basename "$F")"
+
+    # Carve out the video URLs from the RSS feeds...
+    curl -s "${FEED_URLS[@]}" | grep 'link rel="alternate"' | sed 's/^.*href="\([^"]*\)".*/\1/' | while read VID_URL; do
+
+      # ...but check if youtube-dl's already downloaded it before
+      grep -q "youtube ${VID_URL##*=}" .done.lst || youtube-dl "${YOUTUBE_DL_OPTS[@]}" --download-archive .done.lst "${VID_URL}"
+
+    done
+
+    cd - 2>/dev/null
+
+  fi
+
+done
